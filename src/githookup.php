@@ -95,8 +95,8 @@ class GitHookUpdater {
                         $name_md=md5($srcURL);
                         if(!isset($act_names_arr[$name_md])) {
                             $act_names_arr[$name_md] = [
-                                $srcURL,
-                                $this->workdir . $fileName,
+                                $this->repository_html_url,
+                                $this->workdir,
                                 $fileName, ''
                             ];
                         }
@@ -115,8 +115,10 @@ class GitHookUpdater {
         foreach($act_names_arr as $name_md => $one_name_arr) {
             $githook_name = $this->githook_dir . $name_md . '.cmt';
             if(is_file($githook_name)) {
-                for ($i = 0; $i < 4; $i++) {
-                    unset($one_name_arr[$i]);
+                for ($i = 0; $i < 10; $i++) {
+                    if(!empty($one_name_arr[$i])) continue;
+                    $one_name_arr[$i]=array_slice($one_name_arr,$i+1);
+                    break;
                 }
             }
             file_put_contents($githook_name,
