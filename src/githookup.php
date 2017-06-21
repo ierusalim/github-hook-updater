@@ -74,7 +74,7 @@ class GitHookUpdater {
                 FILE_APPEND
             );
         }
-        return $commits_arr;
+        return $this->commits_arr;
     }
     
     public function save_commits() {
@@ -117,7 +117,7 @@ class GitHookUpdater {
             if(is_file($githook_name)) {
                 for ($i = 0; $i < 10; $i++) {
                     if(!empty($one_name_arr[$i])) continue;
-                    $one_name_arr[$i]=array_slice($one_name_arr,$i+1);
+                    $one_name_arr=array_slice($one_name_arr,$i+1);
                     break;
                 }
             }
