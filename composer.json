@@ -1,0 +1,21 @@
+{
+    "name": "ierusalim/github-hook-updater",
+    "description": "Auto-Updater from GitHub by webhook",
+    "keywords": ["github","webhook"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Alex Jer",
+            "email": "alex@ierusalim.com"
+        }
+    ],
+    "require": {
+        "php": ">=5.4",
+        "ierusalim/github-webhook-simple": "dev-master"
+    },
+    "autoload": {
+        "psr-4": {
+            "ierusalim\\github-hook-updater\\": "src/"
+        }
+    }
+}
