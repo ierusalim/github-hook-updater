@@ -6,9 +6,10 @@ use ierusalim\GitHubWebhook\Handler;
 class GitHookUpdater {
     const githook_subdir = '.githook';
     public $githook_dir;
+    public $repository_html_url;
     private $workdir;
     private $webhook_handler;
-    public $webhook_log = false;
+    public $commits_log = false;
     public $commits_arr = [];
     
     public function __construct($secret, $workdir)
@@ -23,29 +24,29 @@ class GitHookUpdater {
         $this->githook_dir = $this->check_make_subdir(self::githook_subdir);
         
         //remove it if not need webhook-debug-log
-        $webhook_log=$this->githook_dir . 'webhook.log';
-        $this->webhook_log = $webhook_log;
+        $this->commits_log = $this->githook_dir . 'commits-push.log';
         
         //make Webhook-Receiver
         $this->webhook_handler = new Handler( $secret,
-            function ($in_arr) use ($webhook_log) {
+            function ($in_arr) {
             	extract($in_arr); // $event , $data , $delivery
-                //get commits-array if present
-                if(isset($data['commits'])) {
-                    $commits_arr = $data['commits'];
-                } else {
-                    $commits_arr = [];
-                }
 
-                //Write webhook-debug-log if log-file defined
-                if(!empty($webhook_log)) {
-                    file_put_contents(
-                        $webhook_log,
-                        $event . ' ' . $delivery . print_r($data,true),
-                        FILE_APPEND
-                    );
+                //get base repository html-url
+                $repository_html_url =
+                    (isset($data['repository']['html_url']))?
+                        $data['repository']['html_url'] : '';
+
+                //return commits-array if it present and if push-event
+                if(isset($data['commits']) && ($event=='push')) {
+                    return array_merge([
+                        'meta'=>compact(
+                            'repository_html_url',
+                            'event',
+                            'delivery'
+                        ),
+                    ], $data['commits']);
                 }
-                return compact('event','delivery','commits_arr');
+                return [];
             }
         );
     }
@@ -61,20 +62,67 @@ class GitHookUpdater {
     }
     
     public function get_commits_array() {
-        $webhook_log = $this->webhook_log;
-        if($commits_arr = $this->webhook_handler->handle()) {
-            if(!empty($commits_arr)) {
-                //Write webhook-debug-log if log-file defined
-                if(!empty($webhook_log)) {
-                    file_put_contents(
-                        $webhook_log,
-                        "Commits_array received:". print_r($commits_arr,true),
-                        FILE_APPEND
-                    );
+        //its not empty only if received webhook-push-event
+        $this->commits_arr = $this->webhook_handler->handle();
+        if(empty($this->commits_arr)) return [];
+
+        //Write commits-received-debug-log (if log-file defined)
+        if(!empty($this->commits_log)) {
+            file_put_contents(
+                $this->commits_log,
+                "Received push-commits:". print_r($this->commits_arr,true),
+                FILE_APPEND
+            );
+        }
+        return $commits_arr;
+    }
+    
+    public function save_commits() {
+        $act_names_arr=[];
+        $commits_arr = $this->commits_arr;
+        if(empty($commits_arr)) return false;
+        $meta = $commits_arr['meta'];
+        unset( $commits_arr['meta'] );
+        $this->repository_html_url = $meta['repository_html_url'];
+        foreach($commits_arr as $one_commit_arr) {
+            $commit_id = ' ' . $one_commit_arr['id'];
+            $timestamp = (isset($one_commit_arr['timestamp']))?
+                ' '.$one_commit_arr['timestamp'] : '';
+            foreach(['added','removed','modified'] as $action) {
+                if(!empty($one_commit_arr[$action])) {
+                    foreach($one_commit_arr[$action] as $fileName) {
+                        $srcURL=$this->repository_html_url . '/' . $fileName;
+                        $name_md=md5($srcURL);
+                        if(!isset($act_names_arr[$name_md])) {
+                            $act_names_arr[$name_md] = [
+                                $srcURL,
+                                $this->workdir . $fileName,
+                                $fileName, ''
+                            ];
+                        }
+                        $act_names_arr[$name_md][]=$action . $commit_id . $timestamp;
+                    }
                 }
             }
-            return $commits_arr;
-       }
-       return [];
+        }
+        if(!empty($this->commits_log)) {
+            file_put_contents(
+                $this->commits_log,
+                "Actions received:". print_r($act_names_arr,true),
+                FILE_APPEND
+            );
+        }
+        foreach($act_names_arr as $name_md => $one_name_arr) {
+            $githook_name = $this->githook_dir . $name_md . '.cmt';
+            if(is_file($githook_name)) {
+                for ($i = 0; $i < 4; $i++) {
+                    unset($one_name_arr[$i]);
+                }
+            }
+            file_put_contents($githook_name,
+                implode(\PHP_EOL,$one_name_arr) . \PHP_EOL
+            ,FILE_APPEND);
+        }
+        return $act_names_arr;
     }
 }
