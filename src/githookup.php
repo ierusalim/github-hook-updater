@@ -179,6 +179,7 @@ class GitHookUpdater {
             . $repository_git_name
             . '/'
             . $current_branch
+            . '/'
             . $fileName
         ;
     }
