@@ -6,7 +6,9 @@ use ierusalim\GitHubWebhook\Handler;
 class GitHookUpdater {
     const githook_subdir = '.githook';
     public $githook_dir;
-    public $repository_html_url;
+    
+    public $meta; //[repository_html_url], [repository_git_name], [current_branch], [event]
+    
     private $workdir;
     private $webhook_handler;
     public $commits_log = false;
@@ -35,12 +37,24 @@ class GitHookUpdater {
                 $repository_html_url =
                     (isset($data['repository']['html_url']))?
                         $data['repository']['html_url'] : '';
+                
+                //get repository_git_name (from ['repository']['full_name']
+                $repository_git_name =
+                    (isset($data['repository']['full_name']))?
+                        $data['repositoru']['full_name'] : '';
+                
+                //get current branch from ['repository']['default_branch']
+                $current_branch =
+                    (isset($data['repository']['default_branch']))?
+                        $data['repository']['default_branch'] : 'master';
 
                 //return commits-array if it present and if push-event
                 if(isset($data['commits']) && ($event=='push')) {
                     return array_merge([
                         'meta'=>compact(
                             'repository_html_url',
+                            'repository_git_name',
+                            'current_branch',
                             'event',
                             'delivery'
                         ),
@@ -63,27 +77,35 @@ class GitHookUpdater {
     
     public function get_commits_array() {
         //its not empty only if received webhook-push-event
-        $this->commits_arr = $this->webhook_handler->handle();
-        if(empty($this->commits_arr)) return [];
+        $commits_arr = $this->webhook_handler->handle();
+        if(empty($commits_arr)) return [];
 
         //Write commits-received-debug-log (if log-file defined)
         if(!empty($this->commits_log)) {
             file_put_contents(
                 $this->commits_log,
-                "Received push-commits:". print_r($this->commits_arr,true),
+                "Received push-commits:". print_r($commits_arr,true),
                 FILE_APPEND
             );
         }
+        //get [meta] and remove [meta] from commits_arr
+        $this->meta = $commits_arr['meta'];
+        unset( $commits_arr['meta'] );
+
+        $this->commits_arr = $commits_arr;
         return $this->commits_arr;
     }
     
     public function save_commits() {
-        $act_names_arr=[];
+        if(empty($this->commits_arr)) return false;
         $commits_arr = $this->commits_arr;
-        if(empty($commits_arr)) return false;
-        $meta = $commits_arr['meta'];
-        unset( $commits_arr['meta'] );
-        $this->repository_html_url = $meta['repository_html_url'];
+
+        $meta = $this->meta;
+        $repository_html_url = $meta['repository_html_url'];
+        $repository_git_name = $meta['repository_git_name'];
+        $current_branch = $meta['current_branch'];
+        
+        $act_names_arr=[];
         foreach($commits_arr as $one_commit_arr) {
             $commit_id = ' ' . $one_commit_arr['id'];
             $timestamp = (isset($one_commit_arr['timestamp']))?
@@ -95,11 +117,29 @@ class GitHookUpdater {
                         $name_md=md5($srcURL);
                         if(!isset($act_names_arr[$name_md])) {
                             $act_names_arr[$name_md] = [
-                                $this->repository_html_url,
-                                $this->workdir,
-                                $fileName, ''
+
+                                //First string: base URL (not for download)
+                                'base_url=' . $srcURL,
+
+                                //Second string: Full-URL for RAW-download file
+                                'from_url=' . $this->make_raw_git_url(
+                                        $srcURL,
+                                        $repository_git_name,
+                                        $current_branch,
+                                        $fileName
+                                    ),
+
+                                //Third string: PATH for save downloaded file
+                                'to_path=' . $this->workdir, //to PATH
+
+                                //Fourth string: filename for save downloaded file
+                                'to_file=' . $fileName, //Filename (for added to PATH)
+
+                                //Last string of header must be empty
+                                ''
                             ];
                         }
+                        //Add action string
                         $act_names_arr[$name_md][]=$action . $commit_id . $timestamp;
                     }
                 }
@@ -126,5 +166,20 @@ class GitHookUpdater {
             ,FILE_APPEND);
         }
         return $act_names_arr;
+    }
+    
+    public function make_raw_git_url( 
+        $srcURL,
+        $repository_git_name,
+        $current_branch,
+        $fileName
+    ) {
+        return
+             'https://raw.githubusercontent.com/'
+            . $repository_git_name
+            . '/'
+            . $current_branch
+            . $fileName
+        ;
     }
 }
