@@ -149,7 +149,7 @@ class GitHookUpdater {
                                     );
                         
                         //make distinct key by repoURL, branch and fileName
-                        $name_md=md5($repoURL . $current_branch . $fileName);
+                        $name_md=md5($repository_html_url . $current_branch . $fileName);
                         
                         if(!isset($act_names_arr[$name_md])) {
                             $act_names_arr[$name_md] = [
@@ -228,7 +228,7 @@ class GitHookUpdater {
                 }
                 //write array string to file (append if exist)
                 file_put_contents($githook_name,
-                    implode(\PHP_EOL,$one_name_arr) . \PHP_EOL
+                    implode("\n",$one_name_arr) . "\n"
                 ,FILE_APPEND);
             }
         }
