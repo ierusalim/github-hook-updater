@@ -41,7 +41,7 @@ class GitHookUpdater {
                 //get repository_git_name (from ['repository']['full_name']
                 $repository_git_name =
                     (isset($data['repository']['full_name']))?
-                        $data['repositoru']['full_name'] : '';
+                        $data['repository']['full_name'] : '';
                 
                 //get current branch from ['repository']['default_branch']
                 $current_branch =
