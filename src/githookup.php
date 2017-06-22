@@ -109,7 +109,7 @@ class GitHookUpdater {
         return true;
     }
     
-    public function parse_actions() {
+    public function parse_actions($target_dir = NULL) {
         //In: 
         //  - received data in $this->commits_arr and $this->meta
         //Out:
@@ -122,19 +122,27 @@ class GitHookUpdater {
         $repository_html_url = $meta['repository_html_url'];
         $repository_git_name = $meta['repository_git_name'];
         $current_branch = $meta['current_branch'];
-        $workDir = $this->workdir;
+        if(is_null($target_dir)) {
+            $workDir = $this->workdir;
+        } else {
+            $workDir = $target_dir;
+        }
         
         $act_names_arr=[];
         foreach($commits_arr as $one_commit_arr) {
-            $commit_id = ' ' . $one_commit_arr['id'];
+            $commit_id = $one_commit_arr['id'];
             $timestamp = (isset($one_commit_arr['timestamp']))?
-                ' '.$one_commit_arr['timestamp'] : '';
+                $one_commit_arr['timestamp'] : '';
+            
             foreach(['added','removed','modified'] as $action) {
                 if(!empty($one_commit_arr[$action])) {
+                    
+                    //Action found. Adding affected files to array.
                     foreach($one_commit_arr[$action] as $fileName) {
+
                         //url where file is possible to download
                         $rawURL = $this->make_raw_git_url(
-                                        $srcURL,
+                                        $repository_html_url,
                                         $repository_git_name,
                                         $current_branch,
                                         $fileName
@@ -165,8 +173,12 @@ class GitHookUpdater {
                                 ''
                             ];
                         }
-                        //Add action string
-                        $act_names_arr[$name_md][]=$action . $commit_id . $timestamp;
+                        //Add action string to array
+                        $act_names_arr[$name_md][] =
+                            $action 
+                            . ' ' . $commit_id
+                            . ' ' . $timestamp
+                            ;
                     }
                 }
             }
@@ -174,35 +186,51 @@ class GitHookUpdater {
         return $act_names_arr;
     }
     
-    function save_actions($actions_path = false) {
-        if(empty($actions_path)) {
-            $actions_path = $this->githook_dir;
+    function save_actions(
+        $actions_save_path = NULL,
+        $target_dir = NULL
+    ) {
+        if(is_null($actions_save_path)) {
+            $actions_save_path = $this->githook_dir;
         }
-        $act_names_arr = $this->parse_actions();
+        if($actions_save_path) {
+            // Need DS after path
+            $actions_save_path = 
+                dirname($actions_save_path . DIRECTORY_SEPARATOR . 'a')
+                . DIRECTORY_SEPARATOR;
+        }
+
+        //get actions array
+        $act_names_arr = $this->parse_actions($target_dir);
         if(empty($act_names_arr)) return [];
         
+        //write to log (if log-file defined)
         if(!empty($this->commits_log)) {
             file_put_contents(
                 $this->commits_log,
-                "Recognized: ". print_r($act_names_arr,true),
+                "Actions Recognized: ". print_r($act_names_arr,true),
                 FILE_APPEND
             );
         }
-        foreach($act_names_arr as $name_md => $one_name_arr) {
-            $githook_name = $actions_path . $name_md . '.cmt';
-            if(is_file($githook_name)) {
-                //if .cmt-file already exists, do not write header
-                //remove header from array
-                for ($i = 2; $i < 9; $i++) {
-                    if(!empty($one_name_arr[$i])) continue;
-                    $one_name_arr=array_slice($one_name_arr,$i+1);
-                    break;
+        
+        if($actions_save_path) {
+            //write all actions to *.cmt files
+            foreach($act_names_arr as $name_md => $one_name_arr) {
+                $githook_name = $actions_save_path . $name_md . '.cmt';
+                if(is_file($githook_name)) {
+                    //if .cmt-file already exists, do not write header
+                    //remove header from array
+                    for ($i = 2; $i < 9; $i++) {
+                        if(!empty($one_name_arr[$i])) continue;
+                        $one_name_arr=array_slice($one_name_arr,$i+1);
+                        break;
+                    }
                 }
+                //write array string to file (append if exist)
+                file_put_contents($githook_name,
+                    implode(\PHP_EOL,$one_name_arr) . \PHP_EOL
+                ,FILE_APPEND);
             }
-            //write array string to file (append if exist)
-            file_put_contents($githook_name,
-                implode(\PHP_EOL,$one_name_arr) . \PHP_EOL
-            ,FILE_APPEND);
         }
         return $act_names_arr;
     }
