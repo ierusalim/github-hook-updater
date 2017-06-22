@@ -113,27 +113,37 @@ class GitHookUpdater {
             foreach(['added','removed','modified'] as $action) {
                 if(!empty($one_commit_arr[$action])) {
                     foreach($one_commit_arr[$action] as $fileName) {
-                        $srcURL=$this->repository_html_url . '/' . $fileName;
-                        $name_md=md5($srcURL);
-                        if(!isset($act_names_arr[$name_md])) {
-                            $act_names_arr[$name_md] = [
-
-                                //First string: base URL (not for download)
-                                'base_url=' . $srcURL,
-
-                                //Second string: Full-URL for RAW-download file
-                                'from_url=' . $this->make_raw_git_url(
+                        $repoURL = $repository_html_url;
+                        $rawURL = $this->make_raw_git_url(
                                         $srcURL,
                                         $repository_git_name,
                                         $current_branch,
                                         $fileName
-                                    ),
+                                    );
+                        $workDir = $this->workdir;
+                        
+                        //Full name of the file in which we plan to put content
+                        $targetFile = $workDir . $fileName;
+                        //make distinct key by targetFile
+                        $name_md=md5($targetFile);
+                        
+                        if(!isset($act_names_arr[$name_md])) {
+                            $act_names_arr[$name_md] = [
+
+                                //First string: base URL (not for download)
+                                'repo_url: ' . $repoURL,
+                                
+                                //current branch
+                                'branch: ' . $current_branch,
+                                
+                                //Second string: Full-URL for RAW-download file
+                                'raw_url: ' . $rawURL,
 
                                 //Third string: PATH for save downloaded file
-                                'to_path=' . $this->workdir, //to PATH
+                                'to_path: ' . $workDir, //to PATH
 
                                 //Fourth string: filename for save downloaded file
-                                'to_file=' . $fileName, //Filename (for added to PATH)
+                                'to_file: ' . $fileName, //Filename (for added to PATH)
 
                                 //Last string of header must be empty
                                 ''
