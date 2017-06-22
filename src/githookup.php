@@ -14,7 +14,7 @@ class GitHookUpdater {
     public $commits_log = false;
     public $commits_arr = [];
     
-    public function __construct($secret, $workdir)
+    public function __construct($secret, $workdir, $cutter_fn = false)
     {
         $workdir =  dirname( $workdir . DIRECTORY_SEPARATOR . 'a');
         if (!is_dir($workdir)) {
@@ -30,53 +30,66 @@ class GitHookUpdater {
         
         //make Webhook-Receiver
         $this->webhook_handler = new Handler( $secret,
-            function ($in_arr) {
-            	extract($in_arr); // $event , $data , $delivery
-
-                //get base repository html-url
-                $repository_html_url =
-                    (isset($data['repository']['html_url']))?
-                        $data['repository']['html_url'] : '';
-                
-                //get repository_git_name (from ['repository']['full_name']
-                $repository_git_name =
-                    (isset($data['repository']['full_name']))?
-                        $data['repository']['full_name'] : '';
-                
-                //get current branch from ['repository']['default_branch']
-                $current_branch =
-                    (isset($data['repository']['default_branch']))?
-                        $data['repository']['default_branch'] : 'master';
-
-                //return commits-array if it present and if push-event
-                if(isset($data['commits']) && ($event=='push')) {
-                    return array_merge([
-                        'meta'=>compact(
-                            'repository_html_url',
-                            'repository_git_name',
-                            'current_branch',
-                            'event',
-                            'delivery'
-                        ),
-                    ], $data['commits']);
-                }
-                return [];
-            }
+            //Function for pre-processing input data received by webhook 
+            empty($cutter_fn) ? (__CLASS__ . '::webhook_data_cutter') : $cutter_fn
         );
     }
-    
-    private function check_make_subdir($subdir) {
-        $workdir = $this->workdir . $subdir;
-        if(!is_dir($workdir)) {
-            if(!mkdir($workdir)) {
-                throw new \Exception("Can't create $workdir");
-            }
+    public function webhook_data_cutter($in_arr) {
+        //Function for pre-processing input data received by webhook 
+        //In: array webhook-data with keys [event], [data], [delivery]
+        extract($in_arr); // $event , $data , $delivery
+
+        //Out:
+        //Function return array with the following keys:
+        // [meta] => array(
+        //      'repository_html_url',
+        //      'repository_git_name',
+        //      'current_branch',
+        //      'event',
+        //      'delivery' ),
+        // [0] => first commit,
+        // [1] => second commit (If present),
+        //  ... etc
+        
+        //get base repository html-url
+        $repository_html_url =
+            (isset($data['repository']['html_url']))?
+                $data['repository']['html_url'] : '';
+
+        //get repository_git_name (from ['repository']['full_name']
+        $repository_git_name =
+            (isset($data['repository']['full_name']))?
+                $data['repository']['full_name'] : '';
+
+        //get current branch from ['repository']['default_branch']
+        $current_branch =
+            (isset($data['repository']['default_branch']))?
+                $data['repository']['default_branch'] : 'master';
+
+        //return commits-array if it present and if push-event
+        if(isset($data['commits']) && ($event=='push')) {
+            return array_merge([
+                'meta'=>compact(
+                    'repository_html_url',
+                    'repository_git_name',
+                    'current_branch',
+                    'event',
+                    'delivery'
+                ),
+            ], $data['commits']);
         }
-        return $workdir . DIRECTORY_SEPARATOR;
+        return [];
     }
-    
+        
     public function get_commits_array() {
-        //its not empty only if received webhook-push-event
+        //Wrapper for webhook-handler, must be called in webhook-handler script
+        
+        //Function receive commits-array if push-event occurred
+        //Do it:
+        // - set $this->meta to received [meta]-data 
+        // - set $this->commits_arr to commits_array (withoun [meta])
+        //return true (nothing interesting)
+        
         $commits_arr = $this->webhook_handler->handle();
         if(empty($commits_arr)) return [];
 
@@ -93,10 +106,15 @@ class GitHookUpdater {
         unset( $commits_arr['meta'] );
 
         $this->commits_arr = $commits_arr;
-        return $this->commits_arr;
+        return true;
     }
     
-    public function save_commits() {
+    public function parse_actions() {
+        //In: 
+        //  - received data in $this->commits_arr and $this->meta
+        //Out:
+        // - array of recognized file actions 
+        
         if(empty($this->commits_arr)) return false;
         $commits_arr = $this->commits_arr;
 
@@ -104,6 +122,7 @@ class GitHookUpdater {
         $repository_html_url = $meta['repository_html_url'];
         $repository_git_name = $meta['repository_git_name'];
         $current_branch = $meta['current_branch'];
+        $workDir = $this->workdir;
         
         $act_names_arr=[];
         foreach($commits_arr as $one_commit_arr) {
@@ -113,25 +132,22 @@ class GitHookUpdater {
             foreach(['added','removed','modified'] as $action) {
                 if(!empty($one_commit_arr[$action])) {
                     foreach($one_commit_arr[$action] as $fileName) {
-                        $repoURL = $repository_html_url;
+                        //url where file is possible to download
                         $rawURL = $this->make_raw_git_url(
                                         $srcURL,
                                         $repository_git_name,
                                         $current_branch,
                                         $fileName
                                     );
-                        $workDir = $this->workdir;
                         
-                        //Full name of the file in which we plan to put content
-                        $targetFile = $workDir . $fileName;
-                        //make distinct key by targetFile
-                        $name_md=md5($targetFile);
+                        //make distinct key by repoURL, branch and fileName
+                        $name_md=md5($repoURL . $current_branch . $fileName);
                         
                         if(!isset($act_names_arr[$name_md])) {
                             $act_names_arr[$name_md] = [
 
                                 //First string: base URL (not for download)
-                                'repo_url: ' . $repoURL,
+                                'repo_url: ' . $repository_html_url,
                                 
                                 //current branch
                                 'branch: ' . $current_branch,
@@ -155,22 +171,35 @@ class GitHookUpdater {
                 }
             }
         }
+        return $act_names_arr;
+    }
+    
+    function save_actions($actions_path = false) {
+        if(empty($actions_path)) {
+            $actions_path = $this->githook_dir;
+        }
+        $act_names_arr = $this->parse_actions();
+        if(empty($act_names_arr)) return [];
+        
         if(!empty($this->commits_log)) {
             file_put_contents(
                 $this->commits_log,
-                "Actions received:". print_r($act_names_arr,true),
+                "Recognized: ". print_r($act_names_arr,true),
                 FILE_APPEND
             );
         }
         foreach($act_names_arr as $name_md => $one_name_arr) {
-            $githook_name = $this->githook_dir . $name_md . '.cmt';
+            $githook_name = $actions_path . $name_md . '.cmt';
             if(is_file($githook_name)) {
-                for ($i = 0; $i < 10; $i++) {
+                //if .cmt-file already exists, do not write header
+                //remove header from array
+                for ($i = 2; $i < 9; $i++) {
                     if(!empty($one_name_arr[$i])) continue;
                     $one_name_arr=array_slice($one_name_arr,$i+1);
                     break;
                 }
             }
+            //write array string to file (append if exist)
             file_put_contents($githook_name,
                 implode(\PHP_EOL,$one_name_arr) . \PHP_EOL
             ,FILE_APPEND);
@@ -192,5 +221,16 @@ class GitHookUpdater {
             . '/'
             . $fileName
         ;
+    }
+    
+    private function check_make_subdir($subdir) {
+        //check subdir (under workdir) and create if not exist
+        $workdir = $this->workdir . $subdir;
+        if(!is_dir($workdir)) {
+            if(!mkdir($workdir)) {
+                throw new \Exception("Can't create $workdir");
+            }
+        }
+        return $workdir . DIRECTORY_SEPARATOR;
     }
 }
