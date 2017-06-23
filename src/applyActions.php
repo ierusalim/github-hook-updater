@@ -1,5 +1,5 @@
 <?php
-namespace ierusalim\applyActions;
+namespace ierusalim\GitHookUpdater;
 
 class applyActions {
     private $dir;
