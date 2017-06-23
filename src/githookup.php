@@ -250,7 +250,7 @@ class GitHookUpdater {
             . $fileName
         ;
     }
-    
+
     private function check_make_subdir($subdir) {
         //check subdir (under workdir) and create if not exist
         $workdir = $this->workdir . $subdir;
